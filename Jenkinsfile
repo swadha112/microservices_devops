@@ -4,7 +4,9 @@ pipeline {
     environment {
         DOCKERHUB_REPO = 'swadhak'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        HOMEBREW_BIN = '/opt/homebrew/bin'
+        // paths on your Mac
+        NPM_PATH = '/opt/homebrew/bin/npm'
+        DOCKER_PATH = '/usr/local/bin/docker'
     }
 
     stages {
@@ -19,9 +21,8 @@ pipeline {
                 sh '''
                     echo "===== ENV ====="
                     env | sort
-                    echo "===== WHICH NODE/NPM (Homebrew) ====="
-                    /opt/homebrew/bin/node -v || echo "node not at /opt/homebrew/bin/node"
-                    /opt/homebrew/bin/npm -v || echo "npm not at /opt/homebrew/bin/npm"
+                    echo "===== docker version (explicit) ====="
+                    /usr/local/bin/docker version || echo "docker not found at /usr/local/bin/docker"
                 '''
             }
         }
@@ -30,20 +31,16 @@ pipeline {
             steps {
                 dir('user-service') {
                     sh '''
-                        export PATH=/opt/homebrew/bin:$PATH
-                        echo "PATH in user-service: $PATH"
-                        which npm || true
+                        export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH
                         npm ci
-                        npx jest --runInBand --detectOpenHandles --forceExit || true
+                        npm test -- --runInBand --detectOpenHandles --forceExit || true
                     '''
                 }
                 dir('order-service') {
                     sh '''
-                        export PATH=/opt/homebrew/bin:$PATH
-                        echo "PATH in order-service: $PATH"
-                        which npm || true
+                        export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH
                         npm ci
-                        npx jest --runInBand --detectOpenHandles --forceExit || true
+                        npm test -- --runInBand --detectOpenHandles --forceExit || true
                     '''
                 }
             }
@@ -51,8 +48,11 @@ pipeline {
 
         stage('Build Docker Images') {
             steps {
-                sh "docker build -t ${DOCKERHUB_REPO}/user-service:${IMAGE_TAG} ./user-service"
-                sh "docker build -t ${DOCKERHUB_REPO}/order-service:${IMAGE_TAG} ./order-service"
+                sh '''
+                    export PATH=/usr/local/bin:/opt/homebrew/bin:$PATH
+                    docker build -t swadhak/user-service:${IMAGE_TAG} ./user-service
+                    docker build -t swadhak/order-service:${IMAGE_TAG} ./order-service
+                '''
             }
         }
 
@@ -63,36 +63,41 @@ pipeline {
                     usernameVariable: 'DOCKER_USER',
                     passwordVariable: 'DOCKER_PASS'
                 )]) {
-                    sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
-                    sh "docker push ${DOCKERHUB_REPO}/user-service:${IMAGE_TAG}"
-                    sh "docker push ${DOCKERHUB_REPO}/order-service:${IMAGE_TAG}"
-                    sh 'docker logout'
+                    sh '''
+                        export PATH=/usr/local/bin:/opt/homebrew/bin:$PATH
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        docker push swadhak/user-service:${IMAGE_TAG}
+                        docker push swadhak/order-service:${IMAGE_TAG}
+                        docker logout
+                    '''
                 }
             }
         }
 
         stage('Deploy (local docker)') {
             steps {
-                sh 'docker rm -f user-service  || true'
-                sh 'docker rm -f order-service || true'
-                sh "docker run -d --name user-service  -p 3001:3001 ${DOCKERHUB_REPO}/user-service:${IMAGE_TAG}"
-                sh "docker run -d --name order-service -p 3002:3002 ${DOCKERHUB_REPO}/order-service:${IMAGE_TAG}"
+                sh '''
+                    export PATH=/usr/local/bin:/opt/homebrew/bin:$PATH
+                    docker rm -f user-service  || true
+                    docker rm -f order-service || true
+                    docker run -d --name user-service  -p 3001:3001 swadhak/user-service:${IMAGE_TAG}
+                    docker run -d --name order-service -p 3002:3002 swadhak/order-service:${IMAGE_TAG}
+                '''
             }
         }
 
         stage('Verify') {
             steps {
-                sh 'docker ps'
+                sh '''
+                    export PATH=/usr/local/bin:/opt/homebrew/bin:$PATH
+                    docker ps
+                '''
             }
         }
     }
 
     post {
-        success {
-            echo "✅ Pipeline succeeded."
-        }
-        failure {
-            echo "❌ Pipeline failed."
-        }
+        success { echo "✅ Pipeline succeeded. Images pushed and containers running." }
+        failure { echo "❌ Pipeline failed." }
     }
 }
