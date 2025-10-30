@@ -34,7 +34,7 @@ pipeline {
                         echo "PATH in user-service: $PATH"
                         which npm || true
                         npm ci
-                        npm test || true
+                        npx jest --runInBand --detectOpenHandles --forceExit || true
                     '''
                 }
                 dir('order-service') {
@@ -43,7 +43,7 @@ pipeline {
                         echo "PATH in order-service: $PATH"
                         which npm || true
                         npm ci
-                        npm test || true
+                        npx jest --runInBand --detectOpenHandles --forceExit || true
                     '''
                 }
             }
