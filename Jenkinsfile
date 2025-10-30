@@ -2,8 +2,12 @@ pipeline {
     agent any
 
     environment {
+        // your Docker Hub username / org
         DOCKERHUB_REPO = 'swadhak'
+        // every build gets its own tag
         IMAGE_TAG = "${BUILD_NUMBER}"
+        // use the global Homebrew npm, not nvm
+        NPM_PATH = '/opt/homebrew/bin/npm'
     }
 
     stages {
@@ -15,13 +19,17 @@ pipeline {
 
         stage('Build & Test Services') {
             steps {
+                // user-service
                 dir('user-service') {
-                    sh 'npm ci'
-                    sh 'npm test || true'     // don't fail the whole build if tests fail
+                    sh "${NPM_PATH} ci"
+                    // don't fail the pipeline if tests fail
+                    sh "${NPM_PATH} test || true"
                 }
+
+                // order-service
                 dir('order-service') {
-                    sh 'npm ci'
-                    sh 'npm test || true'
+                    sh "${NPM_PATH} ci"
+                    sh "${NPM_PATH} test || true"
                 }
             }
         }
@@ -35,7 +43,12 @@ pipeline {
 
         stage('Push to Docker Hub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                // make sure you created a Jenkins credential with ID: dockerhub-creds
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
                     sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
                     sh "docker push ${DOCKERHUB_REPO}/user-service:${IMAGE_TAG}"
                     sh "docker push ${DOCKERHUB_REPO}/order-service:${IMAGE_TAG}"
@@ -46,7 +59,7 @@ pipeline {
 
         stage('Deploy (local docker)') {
             steps {
-                // stop old ones if present
+                // stop old containers if they exist
                 sh 'docker rm -f user-service  || true'
                 sh 'docker rm -f order-service || true'
 
@@ -58,21 +71,17 @@ pipeline {
 
         stage('Verify') {
             steps {
-                sh '''
-                set -e
-                echo "Checking containers..."
-                docker ps
-                '''
+                sh 'docker ps'
             }
         }
     }
 
     post {
         success {
-            echo "Pipeline succeeded. Images pushed and services deployed."
+            echo "✅ Pipeline succeeded. Images pushed and services deployed."
         }
         failure {
-            echo "Pipeline failed."
+            echo "❌ Pipeline failed."
         }
     }
 }
