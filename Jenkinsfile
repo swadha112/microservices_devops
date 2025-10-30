@@ -2,12 +2,9 @@ pipeline {
     agent any
 
     environment {
-        // your Docker Hub username / org
         DOCKERHUB_REPO = 'swadhak'
-        // every build gets its own tag
         IMAGE_TAG = "${BUILD_NUMBER}"
-        // use the global Homebrew npm, not nvm
-        NPM_PATH = '/opt/homebrew/bin/npm'
+        HOMEBREW_BIN = '/opt/homebrew/bin'
     }
 
     stages {
@@ -17,19 +14,37 @@ pipeline {
             }
         }
 
+        stage('Show PATH (debug)') {
+            steps {
+                sh '''
+                    echo "===== ENV ====="
+                    env | sort
+                    echo "===== WHICH NODE/NPM (Homebrew) ====="
+                    /opt/homebrew/bin/node -v || echo "node not at /opt/homebrew/bin/node"
+                    /opt/homebrew/bin/npm -v || echo "npm not at /opt/homebrew/bin/npm"
+                '''
+            }
+        }
+
         stage('Build & Test Services') {
             steps {
-                // user-service
                 dir('user-service') {
-                    sh "${NPM_PATH} ci"
-                    // don't fail the pipeline if tests fail
-                    sh "${NPM_PATH} test || true"
+                    sh '''
+                        export PATH=/opt/homebrew/bin:$PATH
+                        echo "PATH in user-service: $PATH"
+                        which npm || true
+                        npm ci
+                        npm test || true
+                    '''
                 }
-
-                // order-service
                 dir('order-service') {
-                    sh "${NPM_PATH} ci"
-                    sh "${NPM_PATH} test || true"
+                    sh '''
+                        export PATH=/opt/homebrew/bin:$PATH
+                        echo "PATH in order-service: $PATH"
+                        which npm || true
+                        npm ci
+                        npm test || true
+                    '''
                 }
             }
         }
@@ -43,7 +58,6 @@ pipeline {
 
         stage('Push to Docker Hub') {
             steps {
-                // make sure you created a Jenkins credential with ID: dockerhub-creds
                 withCredentials([usernamePassword(
                     credentialsId: 'dockerhub-creds',
                     usernameVariable: 'DOCKER_USER',
@@ -59,11 +73,8 @@ pipeline {
 
         stage('Deploy (local docker)') {
             steps {
-                // stop old containers if they exist
                 sh 'docker rm -f user-service  || true'
                 sh 'docker rm -f order-service || true'
-
-                // run new ones
                 sh "docker run -d --name user-service  -p 3001:3001 ${DOCKERHUB_REPO}/user-service:${IMAGE_TAG}"
                 sh "docker run -d --name order-service -p 3002:3002 ${DOCKERHUB_REPO}/order-service:${IMAGE_TAG}"
             }
@@ -78,7 +89,7 @@ pipeline {
 
     post {
         success {
-            echo "✅ Pipeline succeeded. Images pushed and services deployed."
+            echo "✅ Pipeline succeeded."
         }
         failure {
             echo "❌ Pipeline failed."
